@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: wa-bot
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir backend
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: APP_ID
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: CONFIG_ID
+        sync: false
+      - key: REDIRECT_URI
+        sync: false
+      - key: VERIFY_TOKEN
+        sync: false
+      - key: ACCESS_TOKEN
+        sync: false
+      - key: PHONE_NUMBER_ID
+        sync: false
+      - key: WABA_ID
+        sync: false

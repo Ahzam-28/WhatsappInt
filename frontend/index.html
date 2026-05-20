@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect WhatsApp Business</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #f0f2f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            width: 100%;
+            max-width: 440px;
+            box-shadow: 0 2px 16px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .logo { font-size: 52px; margin-bottom: 16px; }
+
+        h1 { font-size: 22px; color: #1a1a1a; margin-bottom: 8px; }
+
+        .subtitle { color: #666; font-size: 14px; margin-bottom: 32px; line-height: 1.5; }
+
+        button {
+            background: #25d366;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 14px 28px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+        }
+
+        button:hover:not(:disabled) { background: #1ebe5d; }
+        button:disabled { background: #aaa; cursor: not-allowed; }
+
+        #status {
+            margin-top: 20px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.5;
+            display: none;
+            word-break: break-word;
+        }
+
+        #status.info    { background: #e8f4fd; color: #0066cc; display: block; }
+        #status.success { background: #e8fdf0; color: #00802b; display: block; }
+        #status.error   { background: #fde8e8; color: #cc0000; display: block; }
+
+        .steps {
+            margin-top: 28px;
+            text-align: left;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+
+        .steps p { font-size: 12px; color: #999; margin-bottom: 6px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">📱</div>
+        <h1>Connect WhatsApp Business</h1>
+        <p class="subtitle">
+            Link your WhatsApp Business account to start sending and receiving messages through our platform.
+        </p>
+
+        <button id="connectBtn" onclick="launchWhatsAppSignup()" disabled>
+            Connect WhatsApp
+        </button>
+
+        <div id="status"></div>
+
+        <div class="steps">
+            <p>After clicking, you will:</p>
+            <p>1. Log in to your Meta account</p>
+            <p>2. Create / select a Business Portfolio</p>
+            <p>3. Create / connect a WhatsApp number</p>
+            <p>4. Grant messaging permissions</p>
+        </div>
+    </div>
+
+    <!-- Facebook JS SDK -->
+    <div id="fb-root"></div>
+    <script async defer crossorigin="anonymous"
+            src="https://connect.facebook.net/en_US/sdk.js"></script>
+
+    <script>
+        var fbConfig = null;
+        var sessionInfo = null; // { waba_id, phone_number_id } returned by embedded signup
+
+        function setStatus(msg, type) {
+            var el = document.getElementById("status");
+            el.textContent = msg;
+            el.className = type;
+        }
+
+        // -------- 1. Init FB SDK once config arrives from backend --------
+        window.fbAsyncInit = function () {
+            fetch("/api/config")
+                .then(function (r) { return r.json(); })
+                .then(function (config) {
+                    if (!config.app_id || !config.config_id) {
+                        setStatus("❌ APP_ID or CONFIG_ID missing in server .env", "error");
+                        return;
+                    }
+                    fbConfig = config;
+
+                    FB.init({
+                        appId:   config.app_id,
+                        cookie:  true,
+                        xfbml:   false,
+                        version: "v20.0"
+                    });
+
+                    document.getElementById("connectBtn").disabled = false;
+                    setStatus("Ready. Click to connect your WhatsApp account.", "info");
+                })
+                .catch(function (err) {
+                    setStatus("❌ Failed to load config from server.", "error");
+                    console.error(err);
+                });
+        };
+
+        // -------- 2. Capture session info from the popup --------
+        // Meta posts a message of type "WA_EMBEDDED_SIGNUP" with waba_id + phone_number_id
+        var lastWaEvent = null;
+
+        window.addEventListener("message", function (event) {
+            // Accept any facebook.com subdomain (www, web, m, business, etc.)
+            if (!/\.facebook\.com$/.test(new URL(event.origin).hostname)) return;
+
+            var data;
+            try {
+                data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+            } catch (e) {
+                console.log("[FB postMessage non-JSON]", event.origin, event.data);
+                return;
+            }
+
+            console.log("[FB postMessage]", event.origin, data);
+
+            if (!data || data.type !== "WA_EMBEDDED_SIGNUP") return;
+
+            lastWaEvent = data;
+
+            // Capture IDs whenever they appear, regardless of event name
+            var inner = data.data || {};
+            if (inner.waba_id && inner.phone_number_id) {
+                sessionInfo = {
+                    waba_id:         inner.waba_id,
+                    phone_number_id: inner.phone_number_id
+                };
+                console.log("✅ Captured sessionInfo:", sessionInfo);
+            }
+
+            if (data.event === "CANCEL") {
+                setStatus("Signup cancelled at: " + (inner.current_step || "?"), "info");
+            } else if (data.event === "ERROR") {
+                setStatus("❌ Signup error: " + (inner.error_message || JSON.stringify(inner)), "error");
+            }
+        });
+
+        // -------- 3. Launch Embedded Signup --------
+        function launchWhatsAppSignup() {
+            if (!fbConfig || typeof FB === "undefined") {
+                setStatus("❌ SDK not ready yet. Refresh the page.", "error");
+                return;
+            }
+
+            setStatus("Opening Meta signup...", "info");
+            document.getElementById("connectBtn").disabled = true;
+            sessionInfo = null;
+
+            FB.login(function (response) {
+                console.log("FB.login response:", response);
+
+                if (!response.authResponse) {
+                    setStatus("Signup was cancelled or failed.", "info");
+                    document.getElementById("connectBtn").disabled = false;
+                    return;
+                }
+
+                var code = response.authResponse.code;
+                if (!code) {
+                    setStatus("❌ No code returned from Meta.", "error");
+                    document.getElementById("connectBtn").disabled = false;
+                    return;
+                }
+
+                if (!sessionInfo) {
+                    var diag = lastWaEvent
+                        ? "Last popup event: " + JSON.stringify(lastWaEvent)
+                        : "No WA_EMBEDDED_SIGNUP messages received at all — Configuration is not Embedded Signup type.";
+                    console.error(diag);
+                    setStatus("❌ Missing WABA / phone info. " + diag, "error");
+                    document.getElementById("connectBtn").disabled = false;
+                    return;
+                }
+
+                // 4. Send to backend
+                fetch("/save-token", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        code:            code,
+                        waba_id:         sessionInfo.waba_id,
+                        phone_number_id: sessionInfo.phone_number_id
+                    })
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (out) {
+                    console.log("save-token response:", out);
+                    if (out.status === "ok") {
+                        setStatus("✅ Connected: " + out.business.phone_number_id, "success");
+                    } else {
+                        setStatus("❌ " + JSON.stringify(out), "error");
+                        document.getElementById("connectBtn").disabled = false;
+                    }
+                })
+                .catch(function (err) {
+                    setStatus("❌ Save failed: " + err.message, "error");
+                    document.getElementById("connectBtn").disabled = false;
+                });
+            },
+            {
+                config_id:                     fbConfig.config_id,
+                response_type:                 "code",
+                override_default_response_type: true,
+                extras: {
+                    setup: {},
+                    featureType: "",
+                    sessionInfoVersion: "3"
+                }
+            });
+        }
+    </script>
+</body>
+</html>
